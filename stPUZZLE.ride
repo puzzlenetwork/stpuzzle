@@ -2,7 +2,7 @@
 {-# CONTENT_TYPE DAPP #-}
 {-# SCRIPT_TYPE ACCOUNT #-}
 
-let VERSION = "stPUZZLE-1.0.0"
+let VERSION = "stPUZZLE-1.0.1"
 
 let Scale8 = 100000000
 let Scale6 = 1000000
@@ -87,7 +87,7 @@ func mintLP() = {
   let assetId = i.payments[0].assetId
   let amount = i.payments[0].amount
   let quantity = getLPQuantity()
-  let toMint = fraction(amount, Scale8, getLPContractPrice(-amount))
+  let toMint = fraction(amount, Scale8, getLPContractPrice(-amount), DOWN)
 
   if (getStringValue("setup_assets").indexOf(assetId.getAssetString()) == unit) then {throw("wrong asset attached")}
   else if (getString("setup_isPaused").valueOrElse("") != "") then {throw("contract is paused")}
@@ -115,7 +115,7 @@ func redeemLP() = {
 
   let treasuryAssets = getStringValue("setup_assets").split(",")
   let assetToReturn = treasuryAssets[0].getAssetBytes()
-  let amountToReturn = fraction(amount, getLPContractPrice(0), Scale8)
+  let amountToReturn = fraction(amount, getLPContractPrice(0), Scale8, DOWN)
 
   if (attachedAssetId != lpId) then {throw("wrong asset attached")}
   # else if (i.caller.toString() != "3P9xX849YJXg7C87v82cDyDy5VhKiPJpHo8") then {throw("whitelist only")}
@@ -159,4 +159,3 @@ func getLPPrice(debug: Boolean) = {
   let res = getLPContractPrice(0)
   if (debug) then { throw(res.toString()) } else { ([], res)}
 }
-
