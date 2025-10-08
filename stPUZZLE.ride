@@ -2,10 +2,11 @@
 {-# CONTENT_TYPE DAPP #-}
 {-# SCRIPT_TYPE ACCOUNT #-}
 
-let VERSION = "stPUZZLE-1.0.1"
+let VERSION = "stPUZZLE-1.1.0"
 
 let Scale8 = 100000000
 let Scale6 = 1000000
+let Fee = 100000 # in Scale8
 
 let puzzleIdStr = "HEB8Qaw9xrWpWs8tHsiATYGBWDBtP2S7kcPALrMu43AS"
 let puzzleId = base58'HEB8Qaw9xrWpWs8tHsiATYGBWDBtP2S7kcPALrMu43AS'
@@ -48,6 +49,11 @@ func unstake(amount: Int) = {
   inv
 }
 
+func burn(amount: Int) = {
+  let toBurn = if amount > 10*Scale8 then 10*Scale8 else amount
+  Burn(puzzleId, toBurn)
+}
+
 ## LP FUNCTIONS
 
 func getLPQuantity() = {
@@ -83,11 +89,32 @@ func init() = {
 }
 
 @Callable(i)
-func mintLP() = {
+func doRefPayment(ref: String, feeAmount: Int) = {
+  if (ref == "") then {
+    [
+      burn(feeAmount)
+    ]
+  } else {
+    let refAddress = getString("ref_"+ref+"_data").valueOrErrorMessage("ref " + ref + " not found").split("__")[0].value().addressFromStringValue()
+    let protocolPart = fraction(feeAmount, 1, 2)
+    [
+      burn(protocolPart),
+      ScriptTransfer(refAddress, feeAmount-protocolPart, puzzleId)
+    ]
+  }
+}
+
+@Callable(i)
+func mintLP(ref: String) = {
   let assetId = i.payments[0].assetId
   let amount = i.payments[0].amount
+  let feeAmount = fraction(amount, Fee, Scale8, CEILING)
+  strict feeInv = invoke(this, "doRefPayment", [ref, feeAmount], [])
+
+  let cleanAmount = amount - feeAmount
+
   let quantity = getLPQuantity()
-  let toMint = fraction(amount, Scale8, getLPContractPrice(-amount), DOWN)
+  let toMint = fraction(cleanAmount, Scale8, getLPContractPrice(-cleanAmount), DOWN)
 
   if (getStringValue("setup_assets").indexOf(assetId.getAssetString()) == unit) then {throw("wrong asset attached")}
   else if (getString("setup_isPaused").valueOrElse("") != "") then {throw("contract is paused")}
@@ -134,6 +161,16 @@ func redeemLP() = {
 ## ADMIN FUNCTIONS
 
 @Callable(i)
+func addRef(domain: String, name: String, address: String, pic: String) = {
+  if (this != i.caller) then {throw("admin only")}
+  else {
+    [
+      StringEntry("ref_"+domain+"_data", address + "__" + name + "__" + pic)
+    ]
+  }
+}
+
+@Callable(i)
 func updateString(key: String, val: String) = {
   if (this != i.caller) then {throw("admin only")}
   else {
@@ -142,7 +179,6 @@ func updateString(key: String, val: String) = {
     ]
   }
 }
-
 
 @Callable(i)
 func updateInt(key: String, val: Int) = {
@@ -159,3 +195,4 @@ func getLPPrice(debug: Boolean) = {
   let res = getLPContractPrice(0)
   if (debug) then { throw(res.toString()) } else { ([], res)}
 }
+
