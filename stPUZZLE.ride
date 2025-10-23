@@ -2,7 +2,7 @@
 {-# CONTENT_TYPE DAPP #-}
 {-# SCRIPT_TYPE ACCOUNT #-}
 
-let VERSION = "stPUZZLE-1.3.0"
+let VERSION = "stPUZZLE-1.4.0"
 
 let Scale8 = 100000000
 let Scale6 = 1000000
@@ -49,6 +49,11 @@ func unstake(amount: Int) = {
   inv
 }
 
+func claim() = {
+  strict inv = invoke(stakingAddress, "claimReward", [], [])
+  inv
+}
+
 func burn(amount: Int) = {
   let toBurn = if amount > 10*Scale8 then 10*Scale8 else amount
   Burn(puzzleId, toBurn)
@@ -61,8 +66,9 @@ func getLPQuantity() = {
 }
 
 func getLPContractPrice(changedAmount: Int) = {
-  let assets = getStringValue("setup_assets").split(",")
-  let treasury = getBalance(assets[0].value()) + getStakedBalance() + changedAmount
+  strict claimResult = claim()
+  strict treasury = assetBalance(this, puzzleId) + getStakedBalance() + changedAmount
+
   let quant = getLPQuantity()
   if (quant == 0) then Scale8 else fraction(treasury, Scale8, quant)
 }
@@ -78,7 +84,7 @@ func getStatsEntry () = {
 func init() = {
   if (i.caller != this && i.caller.toString() != "3P9xX849YJXg7C87v82cDyDy5VhKiPJpHo8") then {throw("available for self-invoke only")}
   else {
-    let lp = Issue("stPUZZLE", "Staked PUZZLE from puzzle.network", 0, 8, true)
+    let lp = Issue("PZL.", "Staked PUZZLE with autocompounded yield. For more details check puzzle.network", 0, 8, true)
     let lpId = lp.calculateAssetId()
 
     [
@@ -114,7 +120,7 @@ func mintLP(ref: String) = {
   let cleanAmount = amount - feeAmount
 
   let quantity = getLPQuantity()
-  let toMint = fraction(cleanAmount, Scale8, getLPContractPrice(-cleanAmount), DOWN)
+  strict toMint = fraction(cleanAmount, Scale8, getLPContractPrice(-cleanAmount), DOWN)
 
   if (getStringValue("setup_assets").indexOf(assetId.getAssetString()) == unit) then {throw("wrong asset attached")}
   else if (getString("setup_isPaused").valueOrElse("") != "") then {throw("contract is paused")}
@@ -142,7 +148,7 @@ func redeemLP() = {
 
   let treasuryAssets = getStringValue("setup_assets").split(",")
   let assetToReturn = treasuryAssets[0].getAssetBytes()
-  let amountToReturn = fraction(amount, getLPContractPrice(0), Scale8, DOWN)
+  strict amountToReturn = fraction(amount, getLPContractPrice(0), Scale8, DOWN)
 
   if (attachedAssetId != lpId) then {throw("wrong asset attached")}
   # else if (i.caller.toString() != "3P9xX849YJXg7C87v82cDyDy5VhKiPJpHo8") then {throw("whitelist only")}
@@ -193,7 +199,7 @@ func updateInt(key: String, val: Int) = {
 
 @Callable(i)
 func getLPPrice(debug: Boolean) = {
-  let res = getLPContractPrice(0)
+  strict res = getLPContractPrice(0)
   if (debug) then { throw(res.toString()) } else { ([], res)}
 }
 
