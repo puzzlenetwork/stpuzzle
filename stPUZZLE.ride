@@ -2,7 +2,15 @@
 {-# CONTENT_TYPE DAPP #-}
 {-# SCRIPT_TYPE ACCOUNT #-}
 
-let VERSION = "stPUZZLE-1.4.0"
+let VERSION = "stPUZZLE-1.5.0"
+
+let sentinels = [
+  Address(base58'3PMcMiMEs6w56NRGacksXtFG5zS7doE9fpL'),
+  Address(base58'3PMKAL4cd77onkYuuU35115Wov1sLMEcFsv'),
+  Address(base58'3P8auNWJkxxByyJtwErFXaxiXcGM45qQ1hA'),
+  Address(base58'3P8qVX189qpoTJZQQQdKS9endHK5sxWsvrd'),
+  Address(base58'3P9xX849YJXg7C87v82cDyDy5VhKiPJpHo8')
+]
 
 let Scale8 = 100000000
 let Scale6 = 1000000
@@ -11,7 +19,7 @@ let Fee = 100000 # in Scale8
 let puzzleIdStr = "HEB8Qaw9xrWpWs8tHsiATYGBWDBtP2S7kcPALrMu43AS"
 let puzzleId = base58'HEB8Qaw9xrWpWs8tHsiATYGBWDBtP2S7kcPALrMu43AS'
 let stakingAddress = Address(base58'3PFTbywqxtFfukX3HyT881g4iW5K4QL3FAS')
-let maxLPCap = getInteger("setup_maxLPCap").valueOrElse(20000 * Scale8)
+let maxLPCap = getInteger("setup_maxLPCap").valueOrElse(2000 * Scale8)
 
 func getAssetString(assetId: ByteVector|Unit) = {
   match assetId {
@@ -82,7 +90,7 @@ func getStatsEntry () = {
 
 @Callable(i)
 func init() = {
-  if (i.caller != this && i.caller.toString() != "3P9xX849YJXg7C87v82cDyDy5VhKiPJpHo8") then {throw("available for self-invoke only")}
+  if (i.caller != this) then {throw("available for self-invoke only")}
   else {
     let lp = Issue("PZL.", "Staked PUZZLE with autocompounded yield. For more details check puzzle.network", 0, 8, true)
     let lpId = lp.calculateAssetId()
@@ -151,7 +159,6 @@ func redeemLP() = {
   strict amountToReturn = fraction(amount, getLPContractPrice(0), Scale8, DOWN)
 
   if (attachedAssetId != lpId) then {throw("wrong asset attached")}
-  # else if (i.caller.toString() != "3P9xX849YJXg7C87v82cDyDy5VhKiPJpHo8") then {throw("whitelist only")}
   else if (getString("setup_isPaused").valueOrElse("") != "") then {throw("contract is paused")}
   else {
     strict inv = unstake(amountToReturn)
@@ -168,7 +175,7 @@ func redeemLP() = {
 
 @Callable(i)
 func addRef(domain: String, name: String, address: String, pic: String) = {
-  if (i.caller != this && i.caller.toString() != "3P9xX849YJXg7C87v82cDyDy5VhKiPJpHo8") then {throw("admin only")}
+  if (i.caller != this && sentinels.indexOf(i.caller) == unit) then {throw("admin only")}
   else {
     [
       StringEntry("ref_"+domain+"_data", address + "__" + name + "__" + pic),
@@ -203,3 +210,74 @@ func getLPPrice(debug: Boolean) = {
   if (debug) then { throw(res.toString()) } else { ([], res)}
 }
 
+
+## VERIFIER
+
+@Callable(i)
+func initNewMaster(master: String) = {
+  let addressOK = match addressFromString(master){
+    case a: Address => true
+    case _ => false
+  }
+  
+  if(!addressOK) then {
+    throw("incorrect address " + master)
+  } else 
+  if (i.caller != this) then {
+    throw("available for self call only")
+  } else {
+    [
+      StringEntry("verifier_master", master)
+    ]
+  }
+}
+
+@Callable(i)
+func requestNewMaster(newMaster: String) = {
+  let addressOK = match addressFromString(newMaster){
+    case a: Address => true
+    case _ => false
+  }
+
+  if(!addressOK) then {
+    throw("incorrect address " + newMaster)
+  } else if (sentinels.indexOf(i.caller) == unit) then {
+    throw("whitelist only")
+  } else {
+    [
+      StringEntry("verifier_newMaster", newMaster),
+      IntegerEntry("verifier_newMasterEligibleAfter", height+10000)
+    ]
+  }
+}
+
+@Callable(i)
+func activateNewMaster() = {
+  let eligibleHeight = getIntegerValue(this, "verifier_newMasterEligibleAfter")
+  let newMaster = getStringValue(this, "verifier_newMaster")
+
+  if (sentinels.indexOf(i.caller) == unit) then {
+    throw("whitelist only")
+  } else if (eligibleHeight > height) then {
+    throw("new master cannot be activated yet")
+  } else {
+    [
+      DeleteEntry("verifier_newMaster"),
+      DeleteEntry("verifier_newMasterEligibleAfter"),
+      StringEntry("verifier_master", newMaster)
+    ]
+  }
+}
+
+@Verifier(tx)
+func verify() = {
+  let masterAddress = getString("verifier_master")
+  let approvedByMaster = match masterAddress {
+    case x: String => match getInteger(x.addressFromStringValue(), "approvedTx_"+tx.id.toBase58String()) {
+      case y: Int => y
+      case _ => 0
+    }
+    case _ => 1
+  }
+  sigVerify(tx.bodyBytes, tx.proofs[0], tx.senderPublicKey) && (approvedByMaster > 0)
+}
