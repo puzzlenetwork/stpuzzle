@@ -2,13 +2,18 @@
 {-# CONTENT_TYPE DAPP #-}
 {-# SCRIPT_TYPE ACCOUNT #-}
 
-let VERSION = "stPUZZLE-1.5.0"
+let VERSION = "stPUZZLE-1.6.0"
 
 let sentinels = [
   Address(base58'3PMcMiMEs6w56NRGacksXtFG5zS7doE9fpL'),
   Address(base58'3PMKAL4cd77onkYuuU35115Wov1sLMEcFsv'),
   Address(base58'3P8auNWJkxxByyJtwErFXaxiXcGM45qQ1hA'),
   Address(base58'3P8qVX189qpoTJZQQQdKS9endHK5sxWsvrd'),
+  Address(base58'3P9xX849YJXg7C87v82cDyDy5VhKiPJpHo8')
+]
+
+let refManagers = [
+  Address(base58'3PKHFX6W4aAr1e1b8MUTz5HmdWVUcjWhgY4'),
   Address(base58'3P9xX849YJXg7C87v82cDyDy5VhKiPJpHo8')
 ]
 
@@ -62,9 +67,12 @@ func claim() = {
   inv
 }
 
-func burn(amount: Int) = {
+func burnPuzzle(amount: Int) = {
   let toBurn = if amount > 10*Scale8 then 10*Scale8 else amount
-  Burn(puzzleId, toBurn)
+  [
+    Burn(puzzleId, toBurn),
+    IntegerEntry("stats_totalBurned", getInteger("stats_totalBurned").valueOrElse(0) + toBurn)
+  ]
 }
 
 ## LP FUNCTIONS
@@ -105,16 +113,13 @@ func init() = {
 @Callable(i)
 func doRefPayment(ref: String, feeAmount: Int) = {
   if (ref == "") then {
-    [
-      burn(feeAmount)
-    ]
+    burnPuzzle(feeAmount)
   } else {
     let refAddress = getString("ref_"+ref+"_data").valueOrErrorMessage("ref " + ref + " not found").split("__")[0].value().addressFromStringValue()
     let protocolPart = fraction(feeAmount, 1, 2)
     [
-      burn(protocolPart),
       ScriptTransfer(refAddress, feeAmount-protocolPart, puzzleId)
-    ]
+    ] ++ burnPuzzle(protocolPart)
   }
 }
 
@@ -175,7 +180,7 @@ func redeemLP() = {
 
 @Callable(i)
 func addRef(domain: String, name: String, address: String, pic: String) = {
-  if (i.caller != this && sentinels.indexOf(i.caller) == unit) then {throw("admin only")}
+  if (i.caller != this && refManagers.indexOf(i.caller) == unit) then {throw("admin only")}
   else {
     [
       StringEntry("ref_"+domain+"_data", address + "__" + name + "__" + pic),
@@ -209,7 +214,6 @@ func getLPPrice(debug: Boolean) = {
   strict res = getLPContractPrice(0)
   if (debug) then { throw(res.toString()) } else { ([], res)}
 }
-
 
 ## VERIFIER
 
